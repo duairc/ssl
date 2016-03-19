@@ -169,13 +169,14 @@ status() {
 }
 
 read_certificate() {
+	prompt="${1:-Paste certificate that you want to import here:}"
 	if [ -t 0 ]; then
-		printf 'Paste certificate that you want to import here:\n' >&2
+		printf '%s\n' "$prompt" >&2
 	fi
 	lines=""
 	while read -r line; do
 		lines="$(printf '%s\n%s' "$lines" "$line")"
-		if [ -n "$(printf '%s' "$line" | grep 'END CERTIFICATE')" ]; then
+		if [ -n "$(printf '%s' "$line" | grep '-----END')" ]; then
 			break
 		fi
 	done
@@ -444,7 +445,31 @@ case "$1" in
 		;;
 	acme)
 		shift
-		csr="$1"
+		server="https://acme-v01.api.letsencrypt.org/"
+		if [ "$1" = "--staging" ]; then
+			server="https://acme-staging.api.letsencrypt.org/"
+			shift
+		elif [ "$1" = "--server" ]; then
+			shift
+			if [ -z "${1+x}" ]; then
+				printf 'No server given with --server option!\n' >&2
+				exit 1
+			else
+				server="$1"
+				shift
+			fi
+		fi
+		csr="$tmpdir"/acme_csr
+		if [ -n "$1" ]; then
+			if ! [ -f "$1" ] || ! [ -r "$1" ]; then
+				printf 'Cannot read file `%s'\''.\n' "$1" >&2
+				exit 1
+			fi
+			cat "$1"
+		else
+			read_certificate "Paste your certificate signing request here:"
+		fi > "$csr"
+		acme_sign "$server" "$csr"
 		;;
 	status)
 		check_init
