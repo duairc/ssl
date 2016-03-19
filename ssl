@@ -125,6 +125,8 @@ status() {
 			ca_color=green
 			if [ "$ca" = "meta" ]; then
 				ca=self-signed
+				ca_color=red
+			elif [ "$ca" = "happyhacker" ]; then
 				ca_color=orange
 			fi
 			if certificate_has_domains "$(path_cert default)" "$domain"; then
@@ -342,8 +344,14 @@ ssl_csr_all() {
 					printf 'No domain given with --exclude-domain option!\n' >&2
 					exit 1
 				fi
-				domain="$1"
-				domains="$(printf '%s' "$domains" | grep -Fvx "$domain")"
+				pattern="$1"
+				domains="$( (
+					printf '%s' "$domains" | while read -r domain; do
+						if ! domain_matches "$domain" "$pattern"; then
+							printf '%s\n' "$domain"
+						fi
+					done
+				) )"
 				;;
 			"--exclude-zone")
 				shift

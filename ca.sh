@@ -31,7 +31,7 @@ trust_meta_ca() {
 }
 
 cas_exist() {
-	diff -qr "$(path_ca)" "$project"/ca >/dev/null 2>/dev/null
+	diff -qr -x meta "$(path_ca)" "$project"/ca >/dev/null 2>/dev/null
 }
 
 create_cas() {

@@ -147,7 +147,7 @@ list_excess_certificate_domains() {
 
 list_excess_certificate_ip_addresses() {
 	certificate="$1"
-	ip_addresses="$2"
+	ip_addresses="$2"o
 	list_certificate_ip_addresses "$certificate" | grep ^ | while read -r certificate_ip; do
 		printf '%s' "$ip_addresses" | grep ^ | while read -r ip; do
 			ip_address_matches "$ip" "$certificate_ip" && exit 1
@@ -176,7 +176,7 @@ certificate_is_valid() {
 	     [ -z "$(list_system_domains | grep -Fx "$name")" ]; then
 		printf 'Certificate `%s'\'' found in CA `%s'\'', but domain %s is not served by this server! ' "$name" "$ca" "$name" >&2
 		return 1
-	elif ! is_valid_certificate "$certificate" && ! is_meta_certificate "$certificate"; then
+	elif ! is_valid_certificate "$certificate"; then
 		printf 'Invalid certificate `%s'\'' in CA `%s'\''! ' "$name" "$ca" >&2
 		return 1
 	elif [ "$name" != "default" ] && ! certificate_has_domains "$certificate" "$name"; then
