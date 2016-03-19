@@ -1,4 +1,4 @@
-zones="$(mktemp -d --tmpdir "ssl-zones-XXXXXXX")"
+tmpdir="$(mktemp -d "ssl-tmp-XXXXXXX")"
 
 normalize_ip_addresses() {
 	perl -pe '$_=lc;s/((?::0\b){2,}):?(?!\S*\b\g1:0\b)(\S*)/::$2/'
@@ -9,11 +9,11 @@ system_has_ip_address() {
 }
 
 list_system_zones() {
-	if ! [ -e "$zones"/_all ]; then
+	if ! [ -e "$tmpdir"/zones ]; then
 		(
 			zonestatus="$(nsd-control zonestatus 2>/dev/null)"
 			if ( exit $? ); then
-				printf '%s' "$zonestatus" | grep ^zone: | awk '{print $2}' | sort -u
+				printf '%s' "$tmpdirtatus" | grep ^zone: | awk '{print $2}' | sort -u
 			else
 				printf 'The nameserver daemon is not running. Attempting to start it to continue...' >&2
 				if systemctl start nsd; then
@@ -24,19 +24,20 @@ list_system_zones() {
 					exit 1
 				fi
 			fi
-		) > "$zones"/_all
+		) > "$tmpdir"/zones
 	fi
-	cat "$zones"/_all
+	cat "$tmpdir"/zones
 }
 
 list_domain_subdomains() {
 	domain="$1"
-	if ! [ -e "$zones"/"$domain" ]; then
+	mkdir -p "$tmpdir"/zone
+	if ! [ -e "$tmpdir"/zone/"$domain" ]; then
 		(
 			dig @localhost -tAXFR "$domain" | grep -v '^;' | grep . | awk '{print $1}' | sed 's/^_[^.]*\._tcp\.//' | sed 's/\.$//' | grep -Fvx "$(list_system_zones)" | grep ^ | sort -u
-		) > "$zones"/"$domain"
+		) > "$tmpdir"/"$domain"
 	fi
-	cat "$zones"/"$domain"
+	cat "$tmpdir"/zone/"$domain"
 }
 
 list_system_domains() {
@@ -82,5 +83,5 @@ ip_address_matches() {
 }
 
 cleanup() {
-	rm -rf "$zones"
+	rm -rf "$tmpdir"
 }

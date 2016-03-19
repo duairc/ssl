@@ -4,6 +4,7 @@ program="$(basename "$0")"
 project="$(dirname -- "$(readlink -f -- "$0")")"
 base="${SSL_BASE:-/var/lib/ssl}"
 
+. "$project"/acme.sh
 . "$project"/ca.sh
 . "$project"/certificate.sh
 . "$project"/csr.sh
@@ -268,10 +269,6 @@ usage() {
 	EOF
 }
 
-# ssl csr [--domain DOMAIN]... [--ip IP]... [--zone ZONE]... CN
-# ssl csr all [--no-ips] [--exclude-zone ZONE]... \
-#             [--exclude-domain DOMAIN]... [--exclude-ip IP]... [CN]
-
 ssl_csr() {
 	while
 		case "$1" in
@@ -402,7 +399,7 @@ case "$1" in
 			default=true
 			shift
 		fi
-		certificate="$(mktemp)"
+		certificate="$tmpdir"/certificate
 		if [ -n "$1" ]; then
 			if ! [ -f "$1" ] || ! [ -r "$1" ]; then
 				printf 'Cannot read file `%s'\''.\n' "$1" >&2
@@ -414,19 +411,16 @@ case "$1" in
 		fi > "$certificate"
 		if ! [ "$(openssl x509 -in "$certificate" -noout -text 2>/dev/null | head -1)" = "Certificate:" ]; then
 			printf 'File does not appear to be SSL certificate.\n' >&2
-			rm -f "$certificate"
 			exit 1
 		fi
 		check_init
 		if ! certificate_has_key "$certificate" "$(path_key)"; then
 			printf 'I don'\''t have the private key for this certificate.\n' >&2
-			rm -f "$certificate"
 			cleanup
 			exit 1
 		fi
 		if ! [ -f "$(path_ca "$(get_certificate_ca "$certificate")")" ]; then
 			printf 'I don'\''t recognise the CA which signed this certificate. Try putting the CA certificate in %s and try again.\n' "$(path_ca)" >&2
-			rm -f "$certificate"
 			cleanup
 			exit 1
 		fi
@@ -446,7 +440,6 @@ case "$1" in
 			link_exists "$domain" || link_certificate "$domain"
 		done
 		status
-		rm -f "$certificate"
 		cleanup
 		;;
 	acme)

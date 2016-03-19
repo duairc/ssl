@@ -242,7 +242,7 @@ create_meta_certificate() {
 		domains=""
 		ips=""
 	fi
-	csr="$(mktemp -u)"
+	csr="$tmpdir"/csr
 	generate_csr "$cn" "$domains" "$ips" > "$csr"
 	mkdir -p "$(dirname "$path")"
 	printf 'Creating new self-signed certificate `%s'\''...' "$name" >&2
@@ -251,7 +251,6 @@ create_meta_certificate() {
 		cat "$(path_ca meta)"
 	) > "$path"
 	printf ' [done]\n' >&2
-	rm "$csr"
 }
 
 link_is_valid() {

@@ -15,7 +15,7 @@ generate_csr() {
 
 sign_csr() {
 	csr="$1"
-	serial="$(mktemp -u)"
+	serial="$tmpdir"/serial
 	configure_openssl \
 		"$(get_certificate_common_name "$csr")" \
 		"$(list_certificate_domains "$csr")" \
@@ -26,6 +26,5 @@ sign_csr() {
 			-CA "$(path_ca meta)" \
 			-CAkey "$(path_key)" \
 			-CAcreateserial \
-			-CAserial "$serial" 2>/dev/null
-	rm "$serial"
+			-CAserial "$tmpdir"/serial 2>/dev/null
 }
