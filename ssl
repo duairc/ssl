@@ -1,0 +1,460 @@
+#!/bin/sh
+
+program="$(basename "$0")"
+project="$(dirname -- "$(readlink -f -- "$0")")"
+base="${SSL_BASE:-/var/lib/ssl}"
+
+. "$project"/ca.sh
+. "$project"/certificate.sh
+. "$project"/csr.sh
+. "$project"/common.sh
+. "$project"/domains.sh
+. "$project"/key.sh
+. "$project"/misc.sh
+. "$project"/paths.sh
+. "$project"/utils.sh
+
+exec 3<&0
+
+init() {
+	ensure_root || exit 1
+
+	key_exists || create_key
+	key_permissions_correct || fix_key_permissions
+
+	meta_ca_exists || create_meta_ca
+	meta_ca_trusted || trust_meta_ca
+
+	cas_exist || create_cas
+
+	list_certificates | grep ^ | while read -r certificate; do
+		certificate_is_valid "$certificate" <&3 || archive_certificate "$certificate"
+	done
+
+	list_links | grep ^ | while read -r link; do
+		link_is_valid "$link" || remove_link "$link"
+	done
+
+	meta_certificate_exists default || create_meta_certificate default
+	link_exists default || link_certificate default
+
+	list_system_domains | grep ^ | while read -r domain; do
+		meta_certificate_exists "$domain" || create_meta_certificate "$domain"
+		link_exists "$domain" || link_certificate "$domain"
+	done
+
+	dovecot_config_is_valid || regenerate_dovecot_config
+	prosody_config_is_valid || regenerate_prosody_config
+}
+
+check_init() {
+	ensure_root || exit 1
+
+	if ! (
+		key_exists || return 1
+		key_permissions_correct || return 1
+
+		meta_ca_exists || return 1
+		meta_ca_trusted || return 1
+
+		cas_exist || return 1
+
+		list_certificates | grep ^ | while read -r certificate; do
+			yes no | certificate_is_valid "$certificate" || return 1
+		done || return 1
+
+		list_links | grep ^ | while read -r link; do
+			link_is_valid "$link" || return 1
+		done || return 1
+
+		meta_certificate_exists default || return 1
+		link_exists default || return 1
+
+		list_system_domains | grep ^ | while read -r domain; do
+			meta_certificate_exists "$domain" || return 1
+			link_exists "$domain" || return 1
+		done
+
+		dovecot_config_is_valid || return 1
+		prosody_config_is_valid || return 1
+	) 2>/dev/null; then
+		program=$(basename "$0")
+		printf 'There are inconsistencies that you must fix by running `%s'\'' with no arguments before you can continue.\n' "$program" >&2
+		exit 1
+	fi
+}
+
+status() {
+	(
+		printf 'Default certificate:\n'
+		printf '    '"$(bold '%-36s')""$(bold '%-14s')""$(bold '%-21s')""$(bold '%-11s')"'\n' 'Name' 'Signed by' 'Domain/IP coverage' 'Valid for'
+		(
+			ca="$(get_certificate_ca "$(path_cert default)")"
+			ca_color=green
+			if [ "$ca" = "meta" ]; then
+				ca=self-signed
+				ca_color=red
+			elif [ "$ca" = "happyhacker" ]; then
+				ca_color=orange
+			fi
+			coverage="$(get_certificate_coverage "$(path_cert default)" "$(list_system_domains)" "$(list_system_ip_addresses)")"
+			coverage_color=green
+			if [ "$coverage" -lt 40 ]; then
+				coverage_color=red
+			elif [ "$coverage" -lt 70 ]; then
+				coverage_color=orange
+			elif [ "$coverage" -lt 90 ]; then
+				coverage_color=yellow
+			fi
+			days="$(get_certificate_days_until_expiry "$(path_cert default)")"
+			days_color=green
+			if [ "$days" -lt 15 ]; then
+				days_color=red
+			elif [ "$days" -lt 30 ]; then
+				days_color=orange
+			elif [ "$days" -lt 90 ]; then
+				days_color=yellow
+			fi
+			printf '    '"$(plain '%-36s')""$($ca_color '%-14s')""$($coverage_color '%-21s')""$($days_color '%-11s')"'\n' 'default' "$ca" "$coverage"'%' "$days"' days'
+		)
+		printf '\n'
+		printf 'Domains:\n'
+		printf '    '"$(bold '%-36s')""$(bold '%-14s')""$(bold '%-21s')""$(bold '%-11s')"'\n' 'Domain' 'Signed by' 'Covered by default' 'Valid for'
+		list_system_domains | grep ^ | while read -r domain; do
+			ca="$(get_certificate_ca "$(path_cert "$domain")")"
+			ca_color=green
+			if [ "$ca" = "meta" ]; then
+				ca=self-signed
+				ca_color=orange
+			fi
+			if certificate_has_domains "$(path_cert default)" "$domain"; then
+				covered=yes
+				covered_color=green
+			else
+				covered=no
+				covered_color=red
+			fi
+			days=$(get_certificate_days_until_expiry "$(path_cert "$domain")")
+			days_color=green
+			if [ "$days" -lt 15 ]; then
+				days_color=red
+			elif [ "$days" -lt 30 ]; then
+				days_color=orange
+			elif [ "$days" -lt 90 ]; then
+				days_color=yellow
+			fi
+			printf '    '"$(plain '%-36s')""$($ca_color '%-14s')""$($covered_color '%-21s')""$($days_color '%-11s')"'\n' "$domain" "$ca" "$covered" "$days"' days'
+		done
+		printf '\n'
+		printf 'IP addresses:\n'
+		printf '    '"$(bold '%-50s')""$(bold '%-32s')"'\n' 'IP address' 'Covered by default'
+		list_system_ip_addresses | grep ^ | while read -r ip; do
+			if certificate_has_ip_addresses "$(path_cert default)" "$ip"; then
+				covered=yes
+				covered_color=green
+			else
+				covered=no
+				covered_color=orange
+			fi
+			printf '    '"$(plain '%-50s')""$($covered_color '%-32s')"'\n' "$ip" "$covered"
+		done
+	) | if [ -t 1 ]; then
+		less -R
+	else
+		sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,3})*)?[m|K]//g"
+	fi
+}
+
+read_certificate() {
+	if [ -t 0 ]; then
+		printf 'Paste certificate that you want to import here:\n' >&2
+	fi
+	lines=""
+	while read -r line; do
+		lines="$(printf '%s\n%s' "$lines" "$line")"
+		if [ -n "$(printf '%s' "$line" | grep 'END CERTIFICATE')" ]; then
+			break
+		fi
+	done
+	if [ -t 0 ]; then
+		printf 'Got certificate!\n' >&2
+	fi
+	printf '%s\n' "$lines" | grep .
+}
+
+import_certificate() {
+	certificate="$1"
+	ca="$(get_certificate_ca "$certificate")"
+	list_certificate_domains_and_common_name "$certificate" | grep ^ | while read -r certificate_domain; do
+		list_system_domains | grep ^ | while read -r domain; do
+			if domain_matches "$domain" "$certificate_domain"; then
+				path="$(path_cert_for_ca "$domain" "$ca")"
+				if ! [ -f "$path" ]; then
+					printf 'Importing new certificate `%s'\'' in CA `%s'\''...' "$domain" "$ca" >&2
+					mkdir -p "$(dirname "$path")"
+					(
+						cat "$certificate"
+						cat "$(path_ca "$ca")"
+					) > "$path"
+					printf ' [done]\n' >&2
+				else
+					if is_better_certificate_than "$certificate" "$path" "$domain"; then
+						printf 'Importing new certificate `%s'\'' in CA `%s'\''...' "$domain" "$ca" >&2
+						archive "$path"
+						(
+							cat "$certificate"
+							cat "$(path_ca "$ca")"
+						) > "$path"
+						printf ' [done]\n' >&2
+					else
+						printf 'Not importing new certificate `%s'\'' in CA `%s'\'' because the existing certificate is as good or better!\n' "$domain" "$ca" >&2
+					fi
+				fi
+				exit 1
+			fi
+			true
+		done && printf 'Skipping domain `%s'\'' which is not served by this server...\n' "$certificate_domain"
+	done
+}
+
+import_default_certificate() {
+	ca="$(get_certificate_ca "$1")"
+	if certificate_has_any_domains_or_ip_addresses "$1" "$(list_system_domains)" "$(list_system_ip_addresses)"; then
+		path="$(path_cert_for_ca default "$ca")"
+		if ! [ -f "$path" ]; then
+			printf 'Importing new certificate `%s'\'' in CA `%s'\''...' default "$ca" >&2
+			mkdir -p "$(dirname "$path")"
+			(
+				cat "$1"
+				cat "$(path_ca "$ca")"
+			) > "$path"
+			printf ' [done]\n' >&2
+		else
+			if is_better_certificate_than "$1" "$path" "$(list_system_domains)" "$(list_system_ip_addresses)"; then
+				printf 'Importing new certificate `%s'\'' in CA `%s'\''...' "default" "$ca" >&2
+				archive "$path"
+				(
+					cat "$1"
+					cat "$(path_ca "$ca")"
+				) > "$path"
+				printf ' [done]\n' >&2
+			else
+				printf 'Not importing new certificate `%s'\'' in CA `%s'\'' because the existing certificate is as good or better!\n' "$domain" "$ca" >&2
+			fi
+		fi
+	else
+		printf 'Not importing new certificate `%s'\'' in CA `%s'\'' as a default certificate because it covers no system domains or IP addresses!\n' "$domain" "$ca" >&2
+		exit 1
+	fi
+}
+
+help() {
+	cat "$project"/README.md | readme
+}
+
+usage() {
+	cat <<-EOF
+	ssl usages:
+	    ssl
+	    ssl status
+	    ssl csr [--domain DOMAIN]... [--ip IP]... [--zone ZONE]... CN
+	    ssl csr all [--no-ips] [--exclude-zone ZONE]... \\
+	                [--exclude-domain DOMAIN]... [--exclude-ip IP]... [CN]
+	    ssl import [--default] [CERTIFICATE]
+	    ssl acme [--staging | --ca SERVER] [CSR]
+	    ssl help
+	EOF
+}
+
+# ssl csr [--domain DOMAIN]... [--ip IP]... [--zone ZONE]... CN
+# ssl csr all [--no-ips] [--exclude-zone ZONE]... \
+#             [--exclude-domain DOMAIN]... [--exclude-ip IP]... [CN]
+
+ssl_csr() {
+	while
+		case "$1" in
+			"--domain")
+				shift
+				if [ -z "${1+x}" ]; then
+					printf 'No domain given with --domain option!\n' >&2
+					exit 1
+				fi
+				domains="$(printf '%s'"${domains+\\n}"'%s' "$domains" "$1")"
+				;;
+			"--ip")
+				shift
+				if [ -z "${1+x}" ]; then
+					printf 'No IP address given with --ip option!\n' >&2
+					exit 1
+				fi
+				ips="$(printf '%s'"${ips+\\n}"'%s' "$ips" "$1")"
+				;;
+			"--zone")
+				shift
+				if [ -z "${1+x}" ]; then
+					printf 'No zone given with --zone option!\n' >&2
+					exit 1
+				fi
+				domains="$(printf '%s'"${domains+\\n}"'%s' "$domains" "$(list_domain_subdomains "$1")")"
+				;;
+			*)
+				if [ -z "${cn+x}" ]; then
+					cn="$1"
+				else
+					printf 'Common name already set -- too many arguments given?\n' >&2
+					exit 1
+				fi
+				;;
+		esac
+		shift 2>/dev/null
+		test -n "${1+x}"
+	do
+		:
+	done
+	if [ -z "${cn+x}" ]; then
+		printf 'You must specify a common name.\n' >&2
+		exit 1
+	fi
+	generate_csr "$cn" "$domains" "$ips"
+	cleanup
+}
+
+ssl_csr_all() {
+	ips="$(list_system_ip_addresses)"
+	domains="$(list_system_domains)"
+	while test -n "${1+x}"; do
+		case "$1" in
+			"--no-ips")
+				ips=""
+				;;
+			"--exclude-ip")
+				shift
+				if [ -z "${1+x}" ]; then
+					printf 'No IP address given with --exclude-ip option!\n' >&2
+					exit 1
+				fi
+				ip="$(printf '%s' "$1" | normalize_ip_addresses)"
+				ips="$(printf '%s' "$ips" | grep -Fvx "$ip")"
+				;;
+			"--exclude-domain")
+				shift
+				if [ -z "${1+x}" ]; then
+					printf 'No domain given with --exclude-domain option!\n' >&2
+					exit 1
+				fi
+				domain="$1"
+				domains="$(printf '%s' "$domains" | grep -Fvx "$domain")"
+				;;
+			"--exclude-zone")
+				shift
+				if [ -z "${1+x}" ]; then
+					printf 'No zone given with --exclude-zone option!\n' >&2
+					exit 1
+				fi
+				domain="$(list_domain_subdomains "$1")"
+				domains="$(printf '%s' "$domains" | grep -Fvx "$domain")"
+				;;
+			*)
+				if [ -z "${cn+x}" ]; then
+					cn="$1"
+				else
+					printf 'Common name already set -- too many arguments given?\n' >&2
+					exit 1
+				fi
+				;;
+		esac
+		shift 2>/dev/null
+	done
+	if [ -z "${cn+x}" ]; then
+		cn="$(hostname)"
+	fi
+	generate_csr "$cn" "$domains" "$ips"
+	cleanup
+}
+
+case "$1" in
+	"")
+		init
+		status
+		cleanup
+		;;
+	csr)
+		shift
+		if [ "$1" = "all" ]; then
+			shift
+			ssl_csr_all "$@"
+		else
+			ssl_csr "$@"
+		fi
+		;;
+	import)
+		shift
+		default=false
+		if [ "$1" = "--default" ]; then
+			default=true
+			shift
+		fi
+		certificate="$(mktemp)"
+		if [ -n "$1" ]; then
+			if ! [ -f "$1" ] || ! [ -r "$1" ]; then
+				printf 'Cannot read file `%s'\''.\n' "$1" >&2
+				exit 1
+			fi
+			cat "$1"
+		else
+			read_certificate
+		fi > "$certificate"
+		if ! [ "$(openssl x509 -in "$certificate" -noout -text 2>/dev/null | head -1)" = "Certificate:" ]; then
+			printf 'File does not appear to be SSL certificate.\n' >&2
+			rm -f "$certificate"
+			exit 1
+		fi
+		check_init
+		if ! certificate_has_key "$certificate" "$(path_key)"; then
+			printf 'I don'\''t have the private key for this certificate.\n' >&2
+			rm -f "$certificate"
+			cleanup
+			exit 1
+		fi
+		if ! [ -f "$(path_ca "$(get_certificate_ca "$certificate")")" ]; then
+			printf 'I don'\''t recognise the CA which signed this certificate. Try putting the CA certificate in %s and try again.\n' "$(path_ca)" >&2
+			rm -f "$certificate"
+			cleanup
+			exit 1
+		fi
+		if $default; then
+			import_default_certificate "$certificate"
+		else
+			import_certificate "$certificate"
+		fi
+
+		list_links | grep ^ | while read -r link; do
+			link_is_valid "$link" || remove_link "$link"
+		done
+
+		link_exists default || link_certificate default
+
+		list_system_domains | grep ^ | while read -r domain; do
+			link_exists "$domain" || link_certificate "$domain"
+		done
+		status
+		rm -f "$certificate"
+		cleanup
+		;;
+	acme)
+		shift
+		csr="$1"
+		;;
+	status)
+		check_init
+		status
+		cleanup
+		;;
+	-h|--help|help)
+		help
+		;;
+	*)
+		usage
+		exit 1
+		;;
+esac
