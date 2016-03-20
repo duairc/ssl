@@ -115,3 +115,8 @@ encode_base64() {
 decode_hex() {
 	"$(which printf)" "$(sed 's/[ ]*//g;s/^\(.\(.\{2\}\)*\)$/0\1/;s/\(.\{2\}\)/\\x\1/g')"
 }
+
+read_exit() {
+	read result
+	return "$result"
+}

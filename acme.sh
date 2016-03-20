@@ -118,8 +118,8 @@ acme_sign() {
 		token="$(printf '%s' "$challenge" | jq -r .token)"
 		keyauth="$(printf '%s.%s' "$token" "$(thumbprint "$key")")"
 		txt="$(printf '%s' "$keyauth" | openssl dgst -sha256 -binary | encode_base64)"
-		deploy_challenge "$domain" "$txt"
 		printf 'Verifying that we control `%s'\''...' "$domain" >&2
+		deploy_challenge "$domain" "$txt"
 		response="$(acme_request "$key" "$server" "$uri" '{"resource": "challenge", "keyAuthorization": "'"$keyauth"'"}')"
 		while
 			status="$(printf '%s' "$response" | jq -r .status)"
@@ -142,13 +142,24 @@ acme_sign() {
 
 	csr64="$(cat "$csr" | openssl req -outform DER | encode_base64)"
 
-	response="$(acme_request "$key" "$server" "$new_cert" '{"resource": "new-cert", "csr": "'"$csr64"'"}' | openssl base64 -e)"
+	response="$(
+		(
+			(
+				(
+					(
+						acme_request "$key" "$server" "$new_cert" '{"resource": "new-cert", "csr": "'"$csr64"'"}'
+						echo "$?" >&3
+					) | openssl base64 -e >&4
+				) 3>&1
+			) | read_exit
+		) 4>&1
+	)"
 
 	if [ "$?" != "0" ]; then
 		printf 'Getting certificate failed!\n' >&2
 		printf '%s' "$response" | openssl base64 -d | jq --indent 4 . >&2
 		exit 1
 	else
-		printf '%s' "$response" | openssl base64 -d | openssl x509 -inform DER
+		printf '%s' "$response" | openssl base64 -d | openssl x509 -inform DER | tee /tmp/cert
 	fi
 }

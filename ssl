@@ -124,7 +124,7 @@ status() {
 				days_color=red
 			elif [ "$days" -lt 30 ]; then
 				days_color=orange
-			elif [ "$days" -lt 90 ]; then
+			elif [ "$days" -lt 60 ]; then
 				days_color=yellow
 			fi
 			printf '    '"$(plain '%-36s')""$($ca_color '%-14s')""$($coverage_color '%-21s')""$($days_color '%-11s')"'\n' 'default' "$ca" "$coverage"'%' "$days"' days'
@@ -154,7 +154,7 @@ status() {
 				days_color=red
 			elif [ "$days" -lt 30 ]; then
 				days_color=orange
-			elif [ "$days" -lt 90 ]; then
+			elif [ "$days" -lt 60 ]; then
 				days_color=yellow
 			fi
 			printf '    '"$(plain '%-36s')""$($ca_color '%-14s')""$($covered_color '%-21s')""$($days_color '%-11s')"'\n' "$domain" "$ca" "$covered" "$days"' days'
