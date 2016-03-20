@@ -3,7 +3,7 @@ show_certificate() {
 		openssl req -noout -text -in "$1"
 	else
 		openssl x509 -noout -text -in "$1"
-	fi # 2>/dev/null
+	fi 2>/dev/null
 }
 
 get_certificate_public_key() {

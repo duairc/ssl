@@ -37,3 +37,13 @@ fix_key_permissions() {
 	chown root "$(path_key)"
 	chgrp ssl-cert "$(path_key)"
 }
+
+public_exponent() {
+	key="$1"
+	openssl rsa -in "$key" -noout -text | grep publicExponent  | cut -d' ' -f3 | cut -dx -f2 | cut -d')' -f1 | decode_hex
+}
+
+public_modulus() {
+	key="$1"
+	openssl rsa -in "$key" -noout -modulus | cut -d'=' -f2 | decode_hex
+}

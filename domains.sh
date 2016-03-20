@@ -1,5 +1,3 @@
-tmpdir="$(mktemp -d "ssl-tmp-XXXXXXX")"
-
 normalize_ip_addresses() {
 	perl -pe '$_=lc;s/((?::0\b){2,}):?(?!\S*\b\g1:0\b)(\S*)/::$2/'
 }
@@ -13,7 +11,7 @@ list_system_zones() {
 		(
 			zonestatus="$(nsd-control zonestatus 2>/dev/null)"
 			if ( exit $? ); then
-				printf '%s' "$tmpdirtatus" | grep ^zone: | awk '{print $2}' | sort -u
+				printf '%s' "$zonestatus" | grep ^zone: | awk '{print $2}' | sort -u
 			else
 				printf 'The nameserver daemon is not running. Attempting to start it to continue...' >&2
 				if systemctl start nsd; then
@@ -34,8 +32,8 @@ list_domain_subdomains() {
 	mkdir -p "$tmpdir"/zone
 	if ! [ -e "$tmpdir"/zone/"$domain" ]; then
 		(
-			dig @localhost -tAXFR "$domain" | grep -v '^;' | grep . | awk '{print $1}' | sed 's/^_[^.]*\._tcp\.//' | sed 's/\.$//' | grep -Fvx "$(list_system_zones)" | grep ^ | sort -u
-		) > "$tmpdir"/"$domain"
+			dig @localhost -tAXFR "$domain" | grep -v '^;' | grep . | awk '{print $1}' | sed 's/^\(_[^.]*\.\)*//' | sed 's/\.$//' | grep -Fvx "$(list_system_zones)" | grep ^ | sort -u
+		) > "$tmpdir"/zone/"$domain"
 	fi
 	cat "$tmpdir"/zone/"$domain"
 }
@@ -82,6 +80,9 @@ ip_address_matches() {
 	test "$ip1" = "$ip2"
 }
 
-cleanup() {
-	rm -rf "$tmpdir"
+increment_serial() {
+	soa="$(cat /etc/nsd/snippets/soa)"
+	serial="$(printf '%s' "$soa" | cut -f11 | cut -d'(' -f2)"
+	soa="$(printf '%s' "$soa" | sed 's/'"$serial"'/'"$(expr "$serial" + 1)"'/')"
+	printf "%s" "$soa" > /etc/nsd/snippets/soa
 }

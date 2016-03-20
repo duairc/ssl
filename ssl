@@ -4,6 +4,17 @@ program="$(basename "$0")"
 project="$(dirname -- "$(readlink -f -- "$0")")"
 base="${SSL_BASE:-/var/lib/ssl}"
 
+tmpdir="$(mktemp -q -d -t "$(basename "$0").XXXXXX")"
+
+
+cleanup() {
+	code="$?"
+	rm -rf "$tmpdir"
+	exit "$code"
+}
+
+trap "cleanup" INT TERM EXIT
+
 . "$project"/acme.sh
 . "$project"/ca.sh
 . "$project"/certificate.sh
@@ -176,7 +187,7 @@ read_certificate() {
 	lines=""
 	while read -r line; do
 		lines="$(printf '%s\n%s' "$lines" "$line")"
-		if [ -n "$(printf '%s' "$line" | grep '-----END')" ]; then
+		if [ -n "$(printf '%s' "$line" | grep '\-\-\-\-\-END')" ]; then
 			break
 		fi
 	done
@@ -445,9 +456,9 @@ case "$1" in
 		;;
 	acme)
 		shift
-		server="https://acme-v01.api.letsencrypt.org/"
+		server="https://acme-v01.api.letsencrypt.org/directory"
 		if [ "$1" = "--staging" ]; then
-			server="https://acme-staging.api.letsencrypt.org/"
+			server="https://acme-staging.api.letsencrypt.org/directory"
 			shift
 		elif [ "$1" = "--server" ]; then
 			shift
@@ -469,7 +480,11 @@ case "$1" in
 		else
 			read_certificate "Paste your certificate signing request here:"
 		fi > "$csr"
-		acme_sign "$server" "$csr"
+		if ! is_csr "$csr"; then
+			printf 'Not a valid certificate signing request.\n' >&2
+			exit 1
+		fi
+		acme_sign "$(path_acme_key)" "$server" "$csr"
 		;;
 	status)
 		check_init

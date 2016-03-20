@@ -65,3 +65,53 @@ readme() {
 		cat
 	fi
 }
+
+http_request() {
+	method="$1"
+	url="$2"
+	data="$3"
+	content="$tmpdir"/content
+
+	case "$method" in
+		head)
+			status="$(curl -s -w "%{http_code}" -o "$content" "$url" -I)"
+			result="$?"
+		;;
+		get)
+			status="$(curl -s -w "%{http_code}" -o "$content" "$url")"
+			result="$?"
+		;;
+		post)
+			status="$(curl -s -w "%{http_code}" -o "$content" "$url" -d "$data")"
+			result="$?"
+		;;
+		*)
+			printf 'Unknown request method `%s'\' "$method" >&2
+			exit 1
+		;;
+	esac
+
+	if [ "$result" != "0" ]; then
+		printf 'Problem connecting to server (curl returned with %s)\n' "$result" >&2
+		exit 1
+	fi
+
+	case "$status" in
+		2*)
+			cat "$content"
+			;;
+		*)
+			printf 'An error occured while sending %s-request to %s (Status %s)\n' "$method" "$url" "$status" >&2
+			cat "$content"
+			return 1
+			;;
+	esac
+}
+
+encode_base64() {
+	openssl base64 -e | tr -d '\n\r' | sed 's/=*$//g;y|+/|-_|'
+}
+
+decode_hex() {
+	"$(which printf)" "$(sed 's/[ ]*//g;s/^\(.\(.\{2\}\)*\)$/0\1/;s/\(.\{2\}\)/\\x\1/g')"
+}
