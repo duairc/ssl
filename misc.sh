@@ -1,5 +1,5 @@
 path_dovecot_config() {
-	printf '%s' /etc/dovecot/conf.d/10-ssl-cert.conf
+	printf '%s' /etc/dovecot/conf.d/ssl-certificates.conf.ext
 }
 
 path_prosody_config() {
@@ -12,9 +12,23 @@ dovecot_config_is_valid() {
 
 prosody_config_is_valid() {
 	( test -d "$(path_prosody_config)"/conf.avail && test -d "$(path_prosody_config)"/conf.d ) || return 1
-	( list_system_zones | while read zone; do
+	( list_system_zones | grep ^ | while read -r zone; do
 		( test -f "$(path_prosody_config)"/conf.avail/"$zone".cfg.lua && test -h "$(path_prosody_config)"/conf.d/"$zone".cfg.lua ) || exit 1
 	done ) || return 1
+	cd "$(path_prosody_config)"/conf.d
+	for config in *.*.cfg.lua; do
+		zone="$(basename "$config" .cfg.lua)"
+		if
+			list_system_zones | grep ^ | while read -r system_zone; do
+				test "$zone" = "$system_zone" && exit 1
+				true
+			done
+		then
+			exit 1
+		else
+			:
+		fi
+	done
 }
 
 generate_dovecot_config() {
@@ -27,11 +41,19 @@ generate_dovecot_config() {
 }
 
 generate_prosody_config() {
-	list_system_zones | while read zone; do
+	list_system_zones | grep ^ | while read -r zone; do
 		(
 			printf 'VirtualHost "%s"\n\tssl = {\n\t\tkey = "%s";\n\t\tcertificate = "%s";\n\t}\n' "$zone" "$(path_key)" "$(path_cert "$zone")"
 		) > "$(path_prosody_config)"/conf.avail/"$zone".cfg.lua
 		ln -sf "$(path_prosody_config)"/conf.avail/"$zone".cfg.lua "$(path_prosody_config)"/conf.d/"$zone".cfg.lua
+	done
+	cd "$(path_prosody_config)"/conf.d
+	for config in *.*.cfg.lua; do
+		zone="$(basename "$config" .cfg.lua)"
+		list_system_zones | grep ^ | while read -r system_zone; do
+			test "$zone" = "$system_zone" && exit 1
+			true
+		done && rm "$config"
 	done
 }
 
