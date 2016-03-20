@@ -60,7 +60,7 @@ plain() {
 
 readme() {
 	if [ -t 1 ]; then
-		sed 's/^##*\s\(.*\)$/\x1B[1m\1\x1B[m/' | sed 's/\*\*\([^\*]*\)\*\*/\x1B[1m\1\x1B[m/g' | less -R
+		sed 's/^##*\s\(.*\)$/\x1B[1m\1\x1B[m/' | sed 's/`\([^`]*\)`/\x1B[1m\1\x1B[m/g' | less -R
 	else
 		cat
 	fi

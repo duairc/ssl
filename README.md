@@ -1,22 +1,22 @@
-**ssl** is a program that helps you manage SSL certificates on servers that serve
+`ssl` is a program that helps you manage SSL certificates on servers that serve
 multiple domains using SNI. It works by maintaining a directory of symlinks to
 certificates, which includes a certificate for each domain name served by the
 server and a default "fallback" certificate for clients that don't support
-SNI. **ssl** ensures that each certificate links to the "best" certificate
+SNI. `ssl` ensures that each certificate links to the "best" certificate
 available that covers the given domain name. It generates self-signed
 certificates for each domain name so that there will always be at least one
 certificate available.
 
-Other certificates can be added using the other commands provided. **ssl csr**
+Other certificates can be added using the other commands provided. `ssl csr`
 can be used to generate certificate signing requests which can then be signed
-by a legitimate certificate authority. You can pipe the output of **ssl csr** to
-**ssl acme** to have your request automatically signed by the free LetsEncrypt
+by a legitimate certificate authority. You can pipe the output of `ssl csr` to
+`ssl acme` to have your request automatically signed by the free LetsEncrypt
 certificate authority (or any other ceritificate authority that uses the ACME
-protocol for verification). **ssl import** reads the given certificate (which can
-be piped from **ssl acme**) and installs it to the appropriate location and sets
+protocol for verification). `ssl import` reads the given certificate (which can
+be piped from `ssl acme`) and installs it to the appropriate location and sets
 up the appropriate symlinks.
 
-**ssl** has the following usages:
+`ssl` has the following usages:
 
 ## Initialisation and Status
 
@@ -36,7 +36,7 @@ such as their certificate authority and their expiration date.
 
 Before you can import real SSL certificates signed by a legitimate certificate
 authority, you'll first need to be able to send a certificate signing request
-for your public key. **ssl** can generate these certificate signing requests for
+for your public key. `ssl` can generate these certificate signing requests for
 you.
 
 In the first usage above, you specify the common name (CN) of the identity you
@@ -48,9 +48,9 @@ domain: this domain should be served by a local DNS server. --zone will query
 the local DNS server to get a list of all subdomains of ZONE, before adding
 both ZONE and all of its subdomains to the certificate's subjectAltName field.
 
-In the second usage above (**ssl csr all**), the common name (CN) defaults to the
+In the second usage above (`ssl csr all`), the common name (CN) defaults to the
 system's hostname (but you can still override this), and all domains (served
-by the local DNS server; only **nsd** is supported) and non-local system IP
+by the local DNS server; only `nsd` is supported) and non-local system IP
 addresses are included in the certificate by default. The other options can be
 used filter this list to exclude certain domains and IP addresses if needed.
 
@@ -74,15 +74,15 @@ displayed at the end to show the effect of importing the certificate.
     # ssl acme [--staging | --ca SERVER] [CSR]
 
 Given a certificate signing request, given by either the CSR parameter or read
-from standard input, **ssl acme** tries to get the free LetsEncrypt certificate
+from standard input, `ssl acme` tries to get the free LetsEncrypt certificate
 authority to sign it automatically. LetsEncrypt verifies ownership of the
 domains in the certificate signing request automatically using the ACME
 protocol.
 
-At the moment, **ssl acme** only supports DNS verification. By default, it will
-add the required TXT records to the local DNS server (only **nsd** is supported).
+At the moment, `ssl acme` only supports DNS verification. By default, it will
+add the required TXT records to the local DNS server (only `nsd` is supported).
 
-If the --staging is given, **ssl acme** will use LetsEncrypt's staging server
+If the --staging is given, `ssl acme` will use LetsEncrypt's staging server
 instead of its production server. This will produce a certificate signed by a
 fake "happy hacker" certificate authority. It's a good idea to do this first,
 because if you mess up your certificate signing request a few times, you could
