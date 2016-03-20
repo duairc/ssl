@@ -32,7 +32,7 @@ list_domain_subdomains() {
 	mkdir -p "$tmpdir"/zone
 	if ! [ -e "$tmpdir"/zone/"$domain" ]; then
 		(
-			dig @localhost -tAXFR "$domain" | grep -v '^;' | grep . | awk '{print $1}' | sed 's/^\(_[^.]*\.\)*//' | sed 's/\.$//' | grep -Fvx "$(list_system_zones)" | grep ^ | sort -u
+			dig @localhost -tAXFR "$domain" | grep -v '^;' | grep . | grep -v '[[:space:]]NS[[:space:]]' | awk '{print $1}' | sed 's/^\(_[^.]*\.\)*//' | sed 's/\.$//' | grep -Fvx "$domain" | sort -u
 		) > "$tmpdir"/zone/"$domain"
 	fi
 	cat "$tmpdir"/zone/"$domain"

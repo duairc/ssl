@@ -308,6 +308,21 @@ ssl_csr() {
 				fi
 				domains="$(printf '%s'"${domains+\\n}"'%s' "$domains" "$(list_domain_subdomains "$1")")"
 				;;
+			"--exclude-domain")
+				shift
+				if [ -z "${1+x}" ]; then
+					printf 'No domain given with --exclude-domain option!\n' >&2
+					exit 1
+				fi
+				pattern="$1"
+				domains="$( (
+					printf '%s' "$domains" | grep ^ | while read -r domain; do
+						if ! domain_matches "$domain" "$pattern"; then
+							printf '%s\n' "$domain"
+						fi
+					done
+				) )"
+				;;
 			*)
 				if [ -z "${cn+x}" ]; then
 					cn="$1"
@@ -355,7 +370,7 @@ ssl_csr_all() {
 				fi
 				pattern="$1"
 				domains="$( (
-					printf '%s' "$domains" | while read -r domain; do
+					printf '%s' "$domains" | grep ^ | while read -r domain; do
 						if ! domain_matches "$domain" "$pattern"; then
 							printf '%s\n' "$domain"
 						fi
